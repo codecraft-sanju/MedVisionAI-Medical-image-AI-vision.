@@ -1,4 +1,3 @@
-# backend_api.py
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from tensorflow.keras.models import load_model
@@ -10,8 +9,7 @@ import os
 import logging
 from dotenv import load_dotenv
 import traceback
-
-# OpenRouter SDK
+from pydantic import BaseModel
 from openai import OpenAI
 
 # -----------------------------
@@ -64,6 +62,20 @@ except Exception:
     raise RuntimeError(f"Could not load model: {traceback.format_exc()}")
 
 # -----------------------------
+# Ultrasound image validation
+# -----------------------------
+def is_ultrasound(img: Image.Image) -> bool:
+    try:
+        gray = img.convert("L")
+        arr = np.array(gray)
+        std_dev = np.std(arr)
+        logging.debug(f"Ultrasound check - grayscale std: {std_dev}")
+        return std_dev >= 1
+    except Exception as e:
+        logging.error(f"Ultrasound check failed: {e}")
+        return False
+
+# -----------------------------
 # OpenRouter API function
 # -----------------------------
 def generate_dynamic_advice(prediction: str) -> str:
@@ -77,19 +89,14 @@ Provide detailed, medically safe advice including:
 Format it for easy readability.
 """
     try:
-        logging.debug(f"Sending prompt to OpenRouter API: {prompt_text}")
-
         completion = client.chat.completions.create(
-            model="openai/gpt-4o",  # Use the model you have access to
+            model="openai/gpt-4o",
             messages=[{"role": "user", "content": prompt_text}],
             temperature=0.7,
             max_tokens=500,
         )
-
         advice = completion.choices[0].message.content
-        logging.debug(f"Received advice from OpenRouter API: {advice}")
         return advice
-
     except Exception as e:
         logging.error(f"OpenRouter API request failed: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"OpenRouter API error: {e}")
@@ -102,40 +109,58 @@ def pcos_predict(img: Image.Image):
         img = img.convert("RGB").resize((224, 224))
         img_array = img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0) / 255.0
-        logging.debug(f"Image array shape: {img_array.shape}")
 
         prediction_value = model.predict(img_array)
-        logging.debug(f"Raw model prediction: {prediction_value}")
-
         result = "PCOS Detected" if prediction_value[0][0] > 0.5 else "Not PCOS"
-        logging.info(f"Prediction result: {result}")
-
         advice = generate_dynamic_advice(result)
-        logging.debug(f"Advice: {advice}")
-
-        return {"prediction": result, "advice": advice}
+        return {"prediction": result, "advice": advice, "confidence": float(prediction_value[0][0])}
 
     except Exception:
         logging.error(f"Prediction failed: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {traceback.format_exc()}")
 
 # -----------------------------
-# API endpoint
+# API endpoint for prediction
 # -----------------------------
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     try:
         img_bytes = await file.read()
-        logging.debug(f"Received file: {file.filename}, size: {len(img_bytes)} bytes")
-
         img = Image.open(io.BytesIO(img_bytes))
-        logging.debug(f"Image format: {img.format}, size: {img.size}, mode: {img.mode}")
+
+        if not is_ultrasound(img):
+            raise HTTPException(
+                status_code=400,
+                detail="Please upload a valid ultrasound (sonography) image."
+            )
 
         return pcos_predict(img)
 
     except UnidentifiedImageError:
-        logging.error("Invalid image uploaded")
         raise HTTPException(status_code=400, detail="Invalid image file")
+    except HTTPException as he:
+        raise he
     except Exception:
         logging.error(f"API endpoint error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {traceback.format_exc()}")
+
+# -----------------------------
+# Chat endpoint
+# -----------------------------
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    try:
+        completion = client.chat.completions.create(
+            model="openai/gpt-4o",
+            messages=[{"role": "user", "content": request.message}],
+            temperature=0.7,
+            max_tokens=500,
+        )
+        reply = completion.choices[0].message.content
+        return {"reply": reply}
+    except Exception as e:
+        logging.error(f"Chat endpoint error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {e}")
