@@ -1,292 +1,277 @@
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   CloudArrowUpIcon,
-  CheckCircleIcon,
-  XCircleIcon,
   ArrowPathIcon,
-  PaperAirplaneIcon,
+  ChatBubbleLeftRightIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import { motion } from "framer-motion";
-
-function ChatMessage({ role, content, isTyping }) {
-  const isAI = role !== "user";
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className={`flex ${isAI ? "justify-start" : "justify-end"}`}
-    >
-      <div
-        className={`max-w-[85%] whitespace-pre-wrap rounded-3xl px-4 py-3 text-sm sm:text-base shadow-xl transition-transform transform hover:scale-105 duration-300 ${
-          isAI
-            ? "bg-gradient-to-br from-gray-700 to-gray-600 text-gray-100 rounded-tl-none"
-            : "bg-gradient-to-br from-purple-600 to-pink-600 text-white rounded-tr-none"
-        }`}
-      >
-        {content}
-        {isTyping && <span className="animate-pulse">▍</span>}
-      </div>
-    </motion.div>
-  );
-}
 
 export default function App() {
-  const [file, setFile] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(null);
+  const [prediction, setPrediction] = useState(null);
+  const [confidence, setConfidence] = useState(null);
+  const [advice, setAdvice] = useState("");
   const [typedAdvice, setTypedAdvice] = useState("");
-  const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatTyping, setChatTyping] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false); // NEW: Chat toggle
 
-  const chatEndRef = useRef(null);
-  const adviceEndRef = useRef(null);
-  const typingIntervalRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  const BASE_URL = import.meta?.env?.VITE_API_URL || "http://127.0.0.1:8000";
-
+  // Typewriter effect
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
-
-  useEffect(() => {
-    adviceEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [typedAdvice]);
-
-  useEffect(() => {
-    return () => clearInterval(typingIntervalRef.current);
-  }, []);
-
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
-    setFile(selectedFile);
-    setResult(null);
-    setErrorMsg(null);
-    setTypedAdvice("");
-    setChatMessages([]);
-    const reader = new FileReader();
-    reader.onloadend = () => setPreview(reader.result);
-    reader.readAsDataURL(selectedFile);
-  };
-
-  const handleSubmit = async () => {
-    if (!file) {
-      toast.info("Select an image first ✨");
-      return;
-    }
-    setLoading(true);
-    setResult(null);
-    setErrorMsg(null);
-    setTypedAdvice("");
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const { data } = await axios.post(`${BASE_URL}/predict`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      const prediction = data?.prediction || "No prediction available";
-      const confidence = typeof data?.confidence === "number" ? data.confidence : 0;
-      const advice = data?.advice || "No advice available";
-      setResult({ prediction, confidence });
-      toast.success("Prediction received!");
-      const words = advice.split(" ");
+    if (advice) {
       let index = 0;
       setTypedAdvice("");
-      clearInterval(typingIntervalRef.current);
-      typingIntervalRef.current = setInterval(() => {
-        if (index < words.length) {
-          setTypedAdvice((prev) => prev + words[index] + " ");
-          index++;
-        } else {
-          clearInterval(typingIntervalRef.current);
-        }
-      }, 30);
-    } catch (error) {
-      const msg = error?.response?.data?.detail || error?.message || "Server error";
-      setErrorMsg(msg);
-      toast.error(msg);
+      const interval = setInterval(() => {
+        setTypedAdvice((prev) => prev + advice[index]);
+        index++;
+        if (index >= advice.length) clearInterval(interval);
+      }, 20);
+      return () => clearInterval(interval);
+    }
+  }, [advice]);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    setSelectedFile(file);
+    if (file) setPreview(URL.createObjectURL(file));
+  };
+
+  const handleUploadAndPredict = async () => {
+    if (!selectedFile) return;
+    setLoading(true);
+    setPrediction(null);
+    setAdvice("");
+    setTypedAdvice("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      const response = await axios.post("http://127.0.0.1:8000/predict", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      setPrediction(response.data.prediction);
+      setConfidence(response.data.confidence);
+      setAdvice(response.data.advice);
+    } catch (err) {
+      console.error(err);
+      setPrediction("Error in prediction");
     } finally {
       setLoading(false);
     }
   };
 
   const handleChatSubmit = async () => {
-    const messageText = chatInput.trim();
-    if (!messageText) return;
-    const userMessage = { role: "user", content: messageText };
-    setChatMessages((prev) => [...prev, userMessage]);
+    if (!chatInput.trim()) return;
+    const userMsg = { role: "user", content: chatInput };
+    setChatMessages((prev) => [...prev, userMsg]);
     setChatInput("");
     setChatLoading(true);
-    setChatTyping(true);
+
     try {
-      const { data } = await axios.post(`${BASE_URL}/chat`, { message: messageText });
-      const aiMessage = { role: "ai", content: data?.reply || "" };
-      setChatMessages((prev) => [...prev, aiMessage]);
-    } catch (error) {
-      toast.error("Chat failed: " + (error?.response?.data?.detail || error.message));
+      const response = await axios.post("http://127.0.0.1:8000/chat", {
+        message: chatInput,
+      });
+      const botMsg = { role: "assistant", content: response.data.reply };
+      setChatMessages((prev) => [...prev, botMsg]);
+    } catch (err) {
+      console.error(err);
     } finally {
-      setChatTyping(false);
       setChatLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (result?.prediction === "PCOS Detected") {
-      const supportMessage = {
-        role: "ai",
-        content:
-          "Hi! I’m here to support you. You’re not alone, and we can talk about ways to manage your health. How are you feeling today?",
-      };
-      setChatMessages([supportMessage]);
-    }
-  }, [result]);
-
-  const confidencePct = Math.max(0, Math.min(100, Math.round((result?.confidence || 0) * 100)));
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 1 }}
-      className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-black text-gray-200 flex flex-col items-center p-4 sm:p-8"
-    >
-      <ToastContainer position="top-right" />
-      <motion.h1
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.8 }}
-        className="text-5xl sm:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500 mb-8 sm:mb-12 text-center tracking-tight animate-pulse"
-      >
-        PCOS Detection Dashboard
-      </motion.h1>
-      <div className="flex flex-col lg:flex-row w-full max-w-7xl gap-6 lg:gap-8">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f0f1a] via-[#1a1a2e] to-[#0f0f1a] text-white flex flex-col items-center justify-center p-4 sm:p-6 relative">
+      <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 mb-6 sm:mb-8 text-center">
+        PCOS Detection & Recommendations
+      </h1>
+
+      {/* Main Layout: Upload + Result */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-5xl lg:h-[75vh]">
+        
+        {/* Upload Section */}
         <motion.div
-          initial={{ y: 50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.6 }}
-          className="flex-1 bg-gray-800/80 backdrop-blur-md rounded-3xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 max-h-[85vh] overflow-y-auto border border-purple-500/20"
+          whileHover={{ scale: 1.02 }}
+          className="flex flex-col justify-between bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20 shadow-xl"
         >
-          <label className="flex flex-col items-center justify-center w-full p-6 sm:p-8 bg-gradient-to-br from-gray-700 to-gray-600 border-2 border-dashed border-purple-500 rounded-2xl cursor-pointer hover:border-purple-400 transition-all duration-300 hover:scale-105">
-            <CloudArrowUpIcon className="w-16 h-16 text-purple-400 mb-4 animate-bounce" />
-            <span className="text-gray-300 font-medium text-lg text-center">
-              {file ? file.name : "Drag & drop or click to upload your file"}
-            </span>
-            <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-          </label>
-
-          {preview && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="w-full flex justify-center">
-              <img src={preview} alt="Preview" className="max-h-80 object-contain rounded-xl border border-purple-500 shadow-md hover:scale-105 transition-transform" />
-            </motion.div>
-          )}
-
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleSubmit}
-            disabled={loading}
-            className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-transform duration-300 ${
-              loading ? "bg-purple-600/50 cursor-not-allowed" : "bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-105"
-            }`}
-          >
-            {loading ? (
-              <div className="flex items-center justify-center gap-2">
-                <ArrowPathIcon className="w-6 h-6 animate-spin" /> Processing...
-              </div>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4">
+            {preview ? (
+              <img
+                src={preview}
+                alt="preview"
+                className="w-full max-h-48 sm:max-h-64 object-cover rounded-xl border border-white/20"
+              />
             ) : (
-              "Predict Now"
-            )}
-          </motion.button>
-
-          {errorMsg && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 flex items-center gap-2 text-red-400 font-semibold animate-pulse">
-              <XCircleIcon className="w-5 h-5" />
-              <span>{errorMsg}</span>
-            </motion.div>
-          )}
-
-          {result && (
-            <>
-              <motion.div initial={{ x: -50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.5 }} className="flex items-center gap-3 mt-6">
-                <CheckCircleIcon className="w-10 h-10 text-purple-400 animate-bounce" />
-                <h2 className="text-3xl font-extrabold text-purple-400">{result.prediction}</h2>
-              </motion.div>
-              <div className="mb-4">
-                <span className="font-medium">Confidence:</span>
-                <div className="w-full bg-gray-700 rounded-full h-5 mt-2 overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${confidencePct}%` }}
-                    transition={{ duration: 1 }}
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-5 rounded-full"
-                  />
-                </div>
-                <div className="text-xs text-gray-400 mt-1">{confidencePct}%</div>
+              <div className="w-full h-40 sm:h-64 flex items-center justify-center border-2 border-dashed border-white/20 rounded-xl">
+                <p className="text-gray-400 text-sm sm:text-base">Upload Ultrasound Image</p>
               </div>
-              {typedAdvice && (
-                <div className="mt-4 flex flex-col">
-                  <h3 className="text-2xl font-bold text-purple-400 mb-2">Recommendations</h3>
-                  <pre className="bg-gray-900/70 p-6 rounded-xl shadow-inner text-base overflow-y-auto max-h-96 border border-purple-500/10" ref={adviceEndRef}>
-                    {typedAdvice}
-                    {loading && <span className="animate-pulse">|</span>}
-                  </pre>
-                </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 mt-6">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => fileInputRef.current.click()}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 shadow-lg text-sm sm:text-base"
+            >
+              <div className="flex items-center justify-center gap-2">
+                <CloudArrowUpIcon className="w-5 h-5" />
+                Upload
+              </div>
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleUploadAndPredict}
+              disabled={loading}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg disabled:opacity-60 text-sm sm:text-base"
+            >
+              {loading ? (
+                <ArrowPathIcon className="w-5 h-5 animate-spin mx-auto" />
+              ) : (
+                "Predict"
               )}
-            </>
-          )}
+            </motion.button>
+          </div>
+
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+          />
         </motion.div>
 
-        {result && (
-          <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.6 }}
-            className="flex-1 bg-gray-800/80 backdrop-blur-md rounded-3xl shadow-2xl p-6 sm:p-8 flex flex-col gap-4 max-h-[85vh] overflow-y-auto border border-pink-500/20"
-          >
-            <h3 className="text-2xl font-bold text-pink-400 mb-4">
-              {result.prediction === "PCOS Detected" ? "Mental Health Support 💜" : "Chat with AI"}
-            </h3>
-            <div className="flex-1 overflow-y-auto flex flex-col gap-3">
-              {chatMessages.map((msg, i) => (
-                <ChatMessage key={i} role={msg.role} content={msg.content} isTyping={chatTyping && i === chatMessages.length - 1} />
-              ))}
-              <div ref={chatEndRef} />
+        {/* Prediction & Recommendations */}
+        <motion.div
+          whileHover={{ scale: 1.02 }}
+          className="flex flex-col bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20 shadow-xl overflow-y-auto"
+        >
+          <h2 className="text-lg sm:text-xl font-semibold mb-4">Result</h2>
+          {prediction && (
+            <div className="space-y-4">
+              <p
+                className={`text-xl sm:text-2xl font-bold ${
+                  prediction.includes("Detected")
+                    ? "text-red-400"
+                    : "text-green-400"
+                }`}
+              >
+                {prediction}
+              </p>
+              {confidence !== null && (
+                <div>
+                  <p className="text-xs sm:text-sm text-gray-300">Confidence:</p>
+                  <div className="w-full bg-white/20 rounded-full h-2 sm:h-3">
+                    <div
+                      className="h-2 sm:h-3 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500"
+                      style={{ width: `${(confidence * 100).toFixed(2)}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-xs sm:text-sm mt-1">
+                    {(confidence * 100).toFixed(2)}%
+                  </p>
+                </div>
+              )}
+
+              {typedAdvice && (
+                <div className="mt-6">
+                  <h3 className="text-base sm:text-lg font-semibold mb-2">Recommendations</h3>
+                  <p className="text-gray-300 whitespace-pre-line leading-relaxed text-sm sm:text-base">
+                    {typedAdvice}
+                  </p>
+                </div>
+              )}
             </div>
-            <div className="flex gap-2 mt-2">
+          )}
+        </motion.div>
+      </div>
+
+      {/* Floating Chatbot Button */}
+      <motion.button
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setChatOpen(!chatOpen)}
+        className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 shadow-xl"
+      >
+        {chatOpen ? (
+          <XMarkIcon className="w-6 h-6 text-white" />
+        ) : (
+          <ChatBubbleLeftRightIcon className="w-6 h-6 text-white" />
+        )}
+      </motion.button>
+
+      {/* Floating Chat Window */}
+      <AnimatePresence>
+        {chatOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: 50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 50 }}
+            transition={{ duration: 0.3 }}
+            className="fixed bottom-20 right-6 w-80 sm:w-96 h-96 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl flex flex-col"
+          >
+            <div className="p-4 border-b border-white/20 flex justify-between items-center">
+              <h2 className="text-lg font-semibold">AI Health Assistant</h2>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`p-2 sm:p-3 rounded-xl max-w-[80%] text-sm sm:text-base ${
+                    msg.role === "user"
+                      ? "ml-auto bg-gradient-to-r from-purple-600 to-indigo-600"
+                      : "mr-auto bg-white/20"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <p className="text-gray-400 animate-pulse text-sm">AI is typing...</p>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-white/20 flex gap-2">
               <input
                 type="text"
+                placeholder="Ask anything..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder={result.prediction === "PCOS Detected" ? "Talk about how you feel..." : "Type a message..."}
-                className="flex-1 p-3 rounded-xl bg-gray-700 text-gray-200 outline-none text-base shadow-inner border border-purple-500/20"
-                onKeyDown={(e) => e.key === "Enter" && handleChatSubmit()}
+                className="flex-1 px-3 py-2 rounded-xl bg-black/40 border border-white/20 focus:outline-none text-sm sm:text-base"
               />
               <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={handleChatSubmit}
                 disabled={chatLoading}
-                className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-6 rounded-xl shadow-lg"
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg disabled:opacity-60 text-sm sm:text-base"
               >
                 {chatLoading ? (
-                  <ArrowPathIcon className="w-6 h-6 animate-spin" />
+                  <ArrowPathIcon className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                 ) : (
-                  <PaperAirplaneIcon className="w-6 h-6 rotate-45" />
+                  "Send"
                 )}
               </motion.button>
             </div>
           </motion.div>
         )}
-      </div>
-    </motion.div>
+      </AnimatePresence>
+    </div>
   );
 }
