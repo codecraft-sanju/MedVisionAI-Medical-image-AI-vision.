@@ -8,6 +8,9 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 
+// 👇 SpeechReader import
+import SpeechReader from "./components/SpeechReader";
+
 export default function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -19,7 +22,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false); // NEW: Chat toggle
+  const [chatOpen, setChatOpen] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -95,7 +98,7 @@ export default function App() {
         PCOS Detection & Recommendations
       </h1>
 
-      {/* Main Layout: Upload + Result */}
+      {/* Main Layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-5xl lg:h-[75vh]">
         
         {/* Upload Section */}
@@ -152,6 +155,30 @@ export default function App() {
             ref={fileInputRef}
             onChange={handleFileChange}
           />
+
+          {/* Sample Images Section */}
+          <div className="mt-6">
+            <p className="text-gray-300 text-sm mb-2">Or try sample images:</p>
+            <div className="grid grid-cols-4 gap-2">
+              {[1, 2, 3, 4].map((num) => (
+                <img
+                  key={num}
+                  src={`/ultrasonic${num}.jpg`}
+                  alt={`Sample ${num}`}
+                  onClick={() => {
+                    fetch(`/ultrasonic${num}.jpg`)
+                      .then((res) => res.blob())
+                      .then((blob) => {
+                        const file = new File([blob], `ultrasonic${num}.jpg`, { type: blob.type });
+                        setSelectedFile(file);
+                        setPreview(URL.createObjectURL(blob));
+                      });
+                  }}
+                  className="w-full h-16 sm:h-20 object-cover rounded-lg border border-white/20 cursor-pointer hover:opacity-80"
+                />
+              ))}
+            </div>
+          </div>
         </motion.div>
 
         {/* Prediction & Recommendations */}
@@ -159,7 +186,14 @@ export default function App() {
           whileHover={{ scale: 1.02 }}
           className="flex flex-col bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border border-white/20 shadow-xl overflow-y-auto"
         >
-          <h2 className="text-lg sm:text-xl font-semibold mb-4">Result</h2>
+          {/* Result Title + Listen Button */}
+        
+<div className="flex items-center justify-between mb-4">
+  <h2 className="text-lg sm:text-xl font-semibold">Result</h2>
+  {typedAdvice && <SpeechReader text={typedAdvice} />}
+</div>
+
+
           {prediction && (
             <div className="space-y-4">
               <p
@@ -198,6 +232,21 @@ export default function App() {
           )}
         </motion.div>
       </div>
+
+      {/* Floating Chatbot Label */}
+      {!chatOpen && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 10 }}
+          transition={{ duration: 0.3 }}
+          className="fixed bottom-20 right-6 bg-white/10 backdrop-blur-md px-3 py-1 rounded-xl border border-white/20 shadow-lg"
+        >
+          <p className="text-sm sm:text-base font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-400">
+            AI Health Assistant
+          </p>
+        </motion.div>
+      )}
 
       {/* Floating Chatbot Button */}
       <motion.button
