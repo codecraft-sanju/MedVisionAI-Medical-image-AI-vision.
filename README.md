@@ -41,6 +41,12 @@ MedVisionAI is an AI-powered medical imaging project that detects PCOS from ultr
 
 ---
 
+## Project Demo
+
+You can watch the project in action by clicking the video below:
+
+[Watch Demo Video](./demovideo.mp4)
+
 ## Installation
 
 ### Backend
@@ -63,10 +69,6 @@ cd frontend
 npm install
 npm run dev
 
-## Project Demo
 
-You can watch the project in action by clicking the video below:
-
-[Watch Demo Video](./demovideo.mp4)
 
 
